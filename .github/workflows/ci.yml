@@ -1,0 +1,54 @@
+name: CI — Analytics Integrity
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint
+        run: python -m ruff check src/ tests/
+
+      - name: Run unit tests
+        run: python -m pytest tests/ -v
+
+  analytics-integrity:
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Simulate events with experiment
+        run: python -m src.simulator.generate --experiment
+
+      - name: Export dashboard data
+        run: python -m src.analysis.export
+
+      - name: Validate analytics integrity
+        run: python ci/validate_analytics.py
