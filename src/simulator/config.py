@@ -22,6 +22,7 @@ class SimulationConfig:
     prob_signup: float = 0.30        # 30% of visitors sign up
     prob_onboarding: float = 0.70    # 70% of signups complete onboarding
     prob_purchase: float = 0.15      # 15% of onboarded users purchase
+    treatment_uplift: float = 0.08   # +8pp purchase lift for treatment variant
 
     # Browsing behavior
     min_page_views: int = 1

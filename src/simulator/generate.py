@@ -3,11 +3,12 @@
 Usage:
     python -m src.simulator.generate
     python -m src.simulator.generate --users 5000 --days 30
+    python -m src.simulator.generate --experiment   # include A/B experiment
 """
 
 import argparse
-import sys
 
+from src.ab.experiment import PRICING_PAGE_EXPERIMENT
 from src.collector.schemas import Event
 from src.simulator.config import SimulationConfig
 from src.simulator.engine import generate_events
@@ -24,12 +25,19 @@ def main(args: list[str] | None = None) -> None:
     parser.add_argument("--days", type=int, default=14, help="Simulation window in days")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--db", type=str, default="data/analytics.duckdb", help="Database path")
+    parser.add_argument("--experiment", action="store_true", help="Run with A/B experiment")
     opts = parser.parse_args(args)
 
     config = SimulationConfig(num_users=opts.users, days=opts.days, seed=opts.seed)
+    experiment = PRICING_PAGE_EXPERIMENT if opts.experiment else None
+
+    if experiment:
+        print(f"Experiment: {experiment.name} ({experiment.experiment_id})")
+        for v in experiment.variants:
+            print(f"  {v.name}: {v.weight:.0%} traffic")
 
     print(f"Generating events for {config.num_users} users over {config.days} days (seed={config.seed})...")
-    events = generate_events(config)
+    events = generate_events(config, experiment)
     print(f"Generated {len(events)} events")
 
     # Summarize funnel

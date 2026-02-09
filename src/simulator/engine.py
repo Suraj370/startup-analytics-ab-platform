@@ -1,9 +1,10 @@
 """Simulation engine that generates realistic user journey events.
 
 Each simulated user progresses through a funnel:
-  page_view(s) -> click(s) -> signup -> onboarding -> purchase
+  page_view(s) -> click(s) -> experiment_assignment -> signup -> onboarding -> purchase
 
 At each stage, the user may drop off based on configured probabilities.
+Treatment variant users get a configurable uplift to purchase probability.
 All randomness is seeded for full reproducibility.
 """
 
@@ -11,12 +12,21 @@ import hashlib
 import random
 from datetime import datetime, timedelta, timezone
 
+from src.ab.assignment import assign_variant
+from src.ab.experiment import Experiment
 from src.collector.schemas import Event, EventType
 from src.simulator.config import SimulationConfig
 
 
-def generate_events(config: SimulationConfig | None = None) -> list[Event]:
+def generate_events(
+    config: SimulationConfig | None = None,
+    experiment: Experiment | None = None,
+) -> list[Event]:
     """Generate a full set of simulated user events.
+
+    If an experiment is provided, each user is deterministically assigned
+    to a variant and an experiment_assignment event is emitted.
+    Treatment users receive a purchase probability uplift.
 
     Returns a list of Event objects sorted by timestamp.
     """
@@ -32,7 +42,9 @@ def generate_events(config: SimulationConfig | None = None) -> list[Event]:
 
     for i in range(config.num_users):
         user_id = f"user_{i:05d}"
-        user_events = _simulate_user_journey(user_id, start_time, config, rng)
+        user_events = _simulate_user_journey(
+            user_id, start_time, config, rng, experiment,
+        )
         all_events.extend(user_events)
 
     all_events.sort(key=lambda e: e.timestamp)
@@ -44,6 +56,7 @@ def _simulate_user_journey(
     start_time: datetime,
     config: SimulationConfig,
     rng: random.Random,
+    experiment: Experiment | None = None,
 ) -> list[Event]:
     """Simulate a single user's journey through the funnel."""
     events: list[Event] = []
@@ -73,6 +86,19 @@ def _simulate_user_journey(
         ))
         current_time += timedelta(seconds=rng.randint(2, 30))
 
+    # --- Experiment assignment (deterministic, before signup gate) ---
+    variant = None
+    if experiment is not None:
+        variant = assign_variant(experiment, user_id)
+        current_time += timedelta(seconds=rng.randint(1, 10))
+        events.append(_make_event(
+            user_id, EventType.EXPERIMENT_ASSIGNMENT, current_time, rng,
+            properties={
+                "experiment_id": experiment.experiment_id,
+                "variant": variant,
+            },
+        ))
+
     # --- Signup (funnel gate) ---
     if rng.random() >= config.prob_signup:
         return events  # dropped off before signup
@@ -97,7 +123,12 @@ def _simulate_user_journey(
         current_time += timedelta(seconds=rng.randint(10, 180))
 
     # --- Purchase (funnel gate) ---
-    if rng.random() >= config.prob_purchase:
+    # Treatment variant gets an uplift to simulate a real experiment effect
+    purchase_prob = config.prob_purchase
+    if variant == "treatment":
+        purchase_prob = min(purchase_prob + config.treatment_uplift, 1.0)
+
+    if rng.random() >= purchase_prob:
         return events  # dropped off before purchase
 
     current_time += timedelta(seconds=rng.randint(30, 600))
